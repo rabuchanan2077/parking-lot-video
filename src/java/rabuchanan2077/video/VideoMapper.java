@@ -220,10 +220,6 @@ class VideoMapper {
 		// keep a reference to running pipeline to keep it from getting GCed and crashing
 		private Pipeline pipeline_;
 		
-		private Sample pendingSample_ = null;
-		private final Lock sampleLock_ = new ReentrantLock(true);
-		private final Condition samplePending_ = sampleLock_.newCondition();
-	
 		public CameraConfiguration(String name) throws Exception {
 			
 			name_ = name;
@@ -272,18 +268,18 @@ class VideoMapper {
 		
 			Bin bin = Bin.launch(pipelineString_, true);
 			pipeline_ = new Pipeline();
-			AppSink inputSink_ = new AppSink(name_);
-			inputSink_.set("drop", true);
-			inputSink_.set("max-buffers", 1);
-			inputSink_.setCaps(new Caps("video/x-raw," + (byteOrder_ == ByteOrder.LITTLE_ENDIAN ? "format=BGRx" : "format=xRGB")));
-			pipeline_.addMany(bin, inputSink_);
-			pipeline_.linkMany(bin, inputSink_);
+			AppSink appSink = new AppSink(name_);
+			appSink.set("drop", true);
+			appSink.set("max-buffers", 1);
+			appSink.setCaps(new Caps("video/x-raw," + (byteOrder_ == ByteOrder.LITTLE_ENDIAN ? "format=BGRx" : "format=xRGB")));
+			pipeline_.addMany(bin, appSink);
+			pipeline_.linkMany(bin, appSink);
 			pipeline_.play();
 			(new Thread() {
 				public void run() {
 					while (true) {
 						frames_.getAndIncrement();
-						handleSample(inputSink_.pullSample());
+						handleSample(appSink.pullSample());
 					}
 				}
 			}).start();
