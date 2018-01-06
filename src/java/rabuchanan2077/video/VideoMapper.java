@@ -52,8 +52,6 @@ class VideoMapper {
 	protected final Lock outputLock_ = new ReentrantLock(true);
 	
 	protected AtomicInteger frames_ = new AtomicInteger();
-	protected AtomicInteger drops_ = new AtomicInteger();
-	protected AtomicInteger nulls_ = new AtomicInteger();
 
 	public static void main(String[] args) {
 	
@@ -151,7 +149,7 @@ class VideoMapper {
 		
 		(new java.util.Timer()).schedule(new TimerTask() {
 			public void run() {
-				System.out.println("FPS:" + frames_.getAndSet(0) + " (" + drops_.getAndSet(0) + " dropped)" + " nulls:" + nulls_.getAndSet(0));
+				System.out.println("FPS:" + frames_.getAndSet(0));
 			}
 		}, 1000, 1000);
 	}
@@ -274,47 +272,18 @@ class VideoMapper {
 		
 			Bin bin = Bin.launch(pipelineString_, true);
 			pipeline_ = new Pipeline();
-			AppSink appSink = new AppSink(name_);
-			appSink.set("emit-signals", true);
-			appSink.setCaps(new Caps("video/x-raw," + (byteOrder_ == ByteOrder.LITTLE_ENDIAN ? "format=BGRx" : "format=xRGB")));
-			appSink.connect(new AppSink.NEW_SAMPLE() {
-				@Override
-				public FlowReturn newSample(AppSink appSink) {
-					Sample sample = appSink.pullSample();
-					if (pendingSample_ == null) {
-						frames_.getAndIncrement();
-					}
-					else {
-						drops_.getAndIncrement();
-					}
-					sampleLock_.lock();
-					pendingSample_ = sample;
-					samplePending_.signal();
-					sampleLock_.unlock();
-					return FlowReturn.OK;
-				}
-			});
-			pipeline_.addMany(bin, appSink);
-			pipeline_.linkMany(bin, appSink);
+			AppSink inputSink_ = new AppSink(name_);
+			inputSink_.set("drop", true);
+			inputSink_.set("max-buffers", 1);
+			inputSink_.setCaps(new Caps("video/x-raw," + (byteOrder_ == ByteOrder.LITTLE_ENDIAN ? "format=BGRx" : "format=xRGB")));
+			pipeline_.addMany(bin, inputSink_);
+			pipeline_.linkMany(bin, inputSink_);
 			pipeline_.play();
 			(new Thread() {
 				public void run() {
 					while (true) {
-						sampleLock_.lock();
-						try {
-							samplePending_.await();
-						}
-						catch (Exception ex) {
-						}
-						Sample sample = pendingSample_;
-						pendingSample_ = null;
-						sampleLock_.unlock();
-						if (sample != null) {
-							handleSample(sample);
-						}
-						else {
-							nulls_.getAndIncrement();
-						}
+						frames_.getAndIncrement();
+						handleSample(inputSink_.pullSample());
 					}
 				}
 			}).start();
